@@ -37,7 +37,6 @@ SEMILLA = 42
 
 def cargar_caudales():
     """Carga los CSV y devuelve los 12 valores normalizados para cada código.
-
     Si un código aparece varias veces, se calcula la media de sus caudales
     mensuales y de su Qmod antes de normalizar.
     """
@@ -336,8 +335,8 @@ def graficar_mapa_clusters(resultados, coordenadas, ruta):
     plt.close(figura)
 
 
-def graficar_mapa_geopandas(resultados, coordenadas, ruta):
-    """Guarda el mapa de Argentina con provincias y ríos clasificados."""
+def graficar_mapa_geopandas(resultados, coordenadas, ruta, ruta_referencia):
+    """Guarda el mapa y una tabla que relaciona referencias con nombres."""
     import geopandas as gpd
 
     url_provincias = (
@@ -354,9 +353,28 @@ def graficar_mapa_geopandas(resultados, coordenadas, ruta):
     mapa = mapa.dropna(subset=["Codigo", "Latitud", "Longitud"]).copy()
     mapa["Codigo"] = mapa["Codigo"].astype(int)
     mapa = mapa.merge(resultados["asignaciones"], on="Codigo", how="inner")
+    mapa = mapa.sort_values("Codigo").reset_index(drop=True)
+    mapa["Referencia"] = [
+        f"R{indice:03d}" for indice in range(1, len(mapa) + 1)
+    ]
+    pd.DataFrame(
+        {
+            "Referencia": mapa["Referencia"],
+            "Codigo": mapa["Codigo"],
+            "Rio": mapa["Rio"].fillna("Río"),
+            "Cluster_optimo": mapa["Cluster_optimo"],
+        }
+    ).to_csv(ruta_referencia, index=False)
+    coordenadas_mapa = desplazar_puntos_superpuestos(
+        mapa[["Longitud", "Latitud"]].to_numpy(),
+        escala_relativa=0.02,
+    )
     puntos = gpd.GeoDataFrame(
         mapa,
-        geometry=gpd.points_from_xy(mapa["Longitud"], mapa["Latitud"]),
+        geometry=gpd.points_from_xy(
+            coordenadas_mapa[:, 0],
+            coordenadas_mapa[:, 1],
+        ),
         crs="EPSG:4326",
     )
     cantidad_clusters = resultados["k_optimo"]
@@ -385,7 +403,7 @@ def graficar_mapa_geopandas(resultados, coordenadas, ruta):
     )
     for _, rio in puntos.iterrows():
         eje.annotate(
-            str(rio["Rio"]),
+            rio["Referencia"],
             (rio.geometry.x, rio.geometry.y),
             xytext=(3, 3),
             textcoords="offset points",
@@ -486,14 +504,14 @@ def generar_histogramas(resultados, carpeta, nombres_por_codigo=None):
         plt.close(figura)
 
 
-def desplazar_puntos_superpuestos(puntos):
+def desplazar_puntos_superpuestos(puntos, escala_relativa=0.008):
     """Separa visualmente puntos idénticos sin modificar sus datos."""
     resultado = puntos.copy()
     rng = np.random.default_rng(SEMILLA)
     for punto in np.unique(puntos, axis=0):
         indices = np.flatnonzero(np.all(puntos == punto, axis=1))
         if len(indices) > 1:
-            escala = max(np.ptp(puntos, axis=0).max() * 0.008, 0.01)
+            escala = max(np.ptp(puntos, axis=0).max() * escala_relativa, 0.01)
             resultado[indices] += rng.normal(
                 0,
                 escala,

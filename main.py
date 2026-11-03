@@ -76,6 +76,7 @@ def ejecutar_analisis(cantidad_clusters):
         resultados,
         coordenadas,
         carpeta_resultados / "mapa_clusters_argentina_geopandas.png",
+        carpeta_resultados / "referencia_mapa_geopandas.csv",
     )
     generar_histogramas(resultados, carpeta_histogramas, nombres_por_codigo)
 
