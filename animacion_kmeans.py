@@ -13,13 +13,19 @@ from analisis_rios import analizar, desplazar_puntos_superpuestos
 
 # Reutiliza el mismo pipeline, incluyendo normalización, logaritmo y SOM.
 K_SELECCIONADO = int(os.environ.get("K_SELECCIONADO", "40"))
+CARPETA_DATOS = os.environ.get("CARPETA_DATOS")
+PATRON_DATOS = os.environ.get("PATRON_DATOS", "estaciones_final*.csv")
 CARPETA_SALIDA = Path(
     os.environ.get(
         "CARPETA_SALIDA",
         Path(__file__).parent / "40_cluster" / "resultados",
     )
 )
-analisis = analizar(k_seleccionado=K_SELECCIONADO)
+analisis = analizar(
+    k_seleccionado=K_SELECCIONADO,
+    carpeta_datos=CARPETA_DATOS,
+    patron=PATRON_DATOS,
+)
 datos = analisis["datos"]
 k_optimo = analisis["k_optimo"]
 salida = CARPETA_SALIDA / "kmeans_comparacion.gif"

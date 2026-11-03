@@ -29,21 +29,19 @@ MESES = [
 ]
 # Máximo k utilizado en las curvas de codo y silueta.
 K_MAXIMO = 40
-# El SOM tiene 100 neuronas organizadas en diez filas y diez columnas.
-TAMANO_SOM = (10, 10)
 # Semilla para que la inicialización aleatoria sea reproducible.
 SEMILLA = 42
 
 
-def cargar_caudales():
+def cargar_caudales(carpeta_datos=None, patron="estaciones_final*.csv"):
     """Carga los CSV y devuelve los 12 valores normalizados para cada código.
     Si un código aparece varias veces, se calcula la media de sus caudales
     mensuales y de su Qmod antes de normalizar.
     """
-    carpeta = Path(__file__).parent
+    carpeta = Path(carpeta_datos) if carpeta_datos else Path(__file__).parent / "csv"
     # Se buscan los archivos relativos a este módulo para que el programa
     # funcione aunque se ejecute desde otro directorio.
-    archivos = sorted((carpeta / "csv").glob("estaciones_final*.csv"))
+    archivos = sorted(carpeta.glob(patron))
     estaciones = pd.concat(
         (pd.read_csv(archivo, encoding="latin1") for archivo in archivos),
         ignore_index=True,
@@ -93,9 +91,20 @@ def entrenar_som(datos, filas, columnas, epocas=200):
     return som.get_weights()
 
 
+def calcular_tamano_som(cantidad_datos):
+    """Calcula una grilla proporcional a la cantidad de ríos analizados."""
+    # La configuración original de 10x10 se toma como referencia para 87 ríos.
+    # La grilla crece con la raíz cuadrada del aumento de observaciones para
+    # mantener una cantidad razonable de ríos por neurona.
+    lado = round(10 * np.sqrt(cantidad_datos / 87))
+    lado = max(2, lado)
+    return lado, lado
+
+
 def suavizar_con_som(datos):
     """Reemplaza cada río por el prototipo de su neurona ganadora."""
-    prototipos = entrenar_som(datos, *TAMANO_SOM)
+    tamano_som = calcular_tamano_som(len(datos))
+    prototipos = entrenar_som(datos, *tamano_som)
     # Distancia de cada río contra todas las neuronas del mapa.
     distancias = np.linalg.norm(
         datos[:, None, None, :] - prototipos[None, :, :, :],
@@ -104,7 +113,7 @@ def suavizar_con_som(datos):
     # Selecciona la neurona más cercana para cada río.
     ganadores = np.argmin(distancias.reshape(len(datos), -1), axis=1)
     # Aplana la grilla y conserva una fila por río: no se elimina ningún río.
-    return prototipos.reshape(-1, datos.shape[1])[ganadores], prototipos
+    return prototipos.reshape(-1, datos.shape[1])[ganadores], prototipos, tamano_som
 
 
 def calcular_codo(inercias, valores_k):
@@ -145,12 +154,12 @@ def evaluar_clusters(datos, valores_k):
     return pd.DataFrame(filas), modelos
 
 
-def analizar(k_seleccionado=None):
+def analizar(k_seleccionado=None, carpeta_datos=None, patron="estaciones_final*.csv"):
     """Ejecuta el pipeline completo y permite seleccionar el número de clusters."""
-    caudales = cargar_caudales()
+    caudales = cargar_caudales(carpeta_datos, patron)
     datos = preparar_datos(caudales)
     # El SOM reemplaza cada perfil por un prototipo cercano para reducir ruido.
-    datos_suavizados, prototipos_som = suavizar_con_som(datos)
+    datos_suavizados, prototipos_som, tamano_som = suavizar_con_som(datos)
     # Se empieza en 2 porque las métricas de separación no tienen sentido con
     # un único cluster.
     valores_k = np.arange(2, min(K_MAXIMO, len(datos) - 1) + 1)
@@ -172,6 +181,7 @@ def analizar(k_seleccionado=None):
         "caudales": caudales,
         "datos": datos_suavizados,
         "prototipos_som": prototipos_som,
+        "tamano_som": tamano_som,
         "metricas": metricas.sort_values("silueta", ascending=False),
         "modelos": modelos,
         "k_optimo": k_optimo,
@@ -253,6 +263,9 @@ def graficar_espacio_solucion(resultados, ruta):
 
 def coordenadas_a_decimal(coordenada):
     """Convierte coordenadas DMS con orientación S/O a grados decimales."""
+    numericas = pd.to_numeric(coordenada, errors="coerce")
+    if numericas.notna().all():
+        return numericas
     partes = coordenada.astype(str).str.extract(
         r"(?P<grados>\d+).*?(?P<minutos>\d+).*?"
         r"(?P<segundos>\d+(?:\.\d+)?).*?(?P<sentido>[SO])",
