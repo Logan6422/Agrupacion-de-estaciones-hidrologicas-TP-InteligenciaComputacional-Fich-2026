@@ -1,6 +1,7 @@
 """Genera un GIF con la convergencia del K-Means óptimo."""
 
 from pathlib import Path
+import os
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,10 +12,17 @@ from analisis_rios import analizar, desplazar_puntos_superpuestos
 
 
 # Reutiliza el mismo pipeline, incluyendo normalización, logaritmo y SOM.
-analisis = analizar()
+K_SELECCIONADO = int(os.environ.get("K_SELECCIONADO", "40"))
+CARPETA_SALIDA = Path(
+    os.environ.get(
+        "CARPETA_SALIDA",
+        Path(__file__).parent / "40_cluster" / "resultados",
+    )
+)
+analisis = analizar(k_seleccionado=K_SELECCIONADO)
 datos = analisis["datos"]
 k_optimo = analisis["k_optimo"]
-salida = Path(__file__).parent / "resultados" / "kmeans_comparacion.gif"
+salida = CARPETA_SALIDA / "kmeans_comparacion.gif"
 salida.parent.mkdir(exist_ok=True)
 SEMILLA = 42  # Hace reproducible la selección de centros iniciales.
 EPOCAS = 30  # Límite máximo de iteraciones que se muestran.

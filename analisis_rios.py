@@ -9,6 +9,7 @@
 
 from pathlib import Path
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from minisom import MiniSom
 import numpy as np
 import pandas as pd
@@ -145,8 +146,8 @@ def evaluar_clusters(datos, valores_k):
     return pd.DataFrame(filas), modelos
 
 
-def analizar():
-    """Ejecuta el pipeline completo y devuelve todos los resultados."""
+def analizar(k_seleccionado=None):
+    """Ejecuta el pipeline completo y permite seleccionar el número de clusters."""
     caudales = cargar_caudales()
     datos = preparar_datos(caudales)
     # El SOM reemplaza cada perfil por un prototipo cercano para reducir ruido.
@@ -157,6 +158,12 @@ def analizar():
     metricas, modelos = evaluar_clusters(datos_suavizados, valores_k)
     # El óptimo matemático se define como la silueta máxima.
     k_optimo = int(metricas.loc[metricas["silueta"].idxmax(), "k"])
+    if k_seleccionado is not None:
+        if k_seleccionado not in valores_k:
+            raise ValueError(
+                f"k_seleccionado debe estar entre 2 y {valores_k[-1]}."
+            )
+        k_optimo = int(k_seleccionado)
     k_codo = calcular_codo(metricas["inercia"].to_numpy(), valores_k)
     asignaciones = pd.DataFrame({"Codigo": caudales.index})
     # Guarda la etiqueta del cluster óptimo para cada código.
@@ -262,7 +269,16 @@ def coordenadas_a_decimal(coordenada):
 
 def graficar_mapa_clusters(resultados, coordenadas, ruta):
     """Guarda la distribución geográfica de los ríos coloreada por cluster."""
+    import geopandas as gpd
+
     modelo = resultados["modelos"][resultados["k_optimo"]]
+    url_provincias = (
+        "https://naturalearth.s3.amazonaws.com/10m_cultural/"
+        "ne_10m_admin_1_states_provinces.zip"
+    )
+    provincias = gpd.read_file(url_provincias)
+    argentina = provincias[provincias["admin"] == "Argentina"]
+
     mapa = coordenadas.copy()
     mapa["Codigo"] = pd.to_numeric(mapa["Codigo"], errors="coerce")
     mapa["Latitud"] = coordenadas_a_decimal(mapa["Latitud"])
@@ -270,11 +286,22 @@ def graficar_mapa_clusters(resultados, coordenadas, ruta):
     mapa = mapa.dropna(subset=["Codigo", "Latitud", "Longitud"]).copy()
     mapa["Codigo"] = mapa["Codigo"].astype(int)
     mapa = mapa.merge(resultados["asignaciones"], on="Codigo", how="inner")
-    colores = plt.cm.nipy_spectral(
-        np.linspace(0, 1, resultados["k_optimo"], endpoint=False)
-    )
+    cantidad_clusters = resultados["k_optimo"]
+    colores = np.array([
+        plt.cm.tab20(indice % 20)
+        if indice < 20
+        else plt.cm.tab20b(indice - 20)
+        for indice in range(cantidad_clusters)
+    ])
 
     figura, eje = plt.subplots(figsize=(10, 12))
+    argentina.plot(
+        ax=eje,
+        facecolor="#f2efe6",
+        edgecolor="gray",
+        linewidth=0.6,
+        zorder=0,
+    )
     eje.scatter(
         mapa["Longitud"],
         mapa["Latitud"],
@@ -282,20 +309,28 @@ def graficar_mapa_clusters(resultados, coordenadas, ruta):
         s=65,
         edgecolors="black",
         linewidths=0.4,
+        zorder=3,
     )
-    for _, rio in mapa.iterrows():
-        eje.annotate(
-            str(rio["Rio"]),
-            (rio["Longitud"], rio["Latitud"]),
-            xytext=(3, 3),
-            textcoords="offset points",
-            fontsize=6,
-        )
     eje.set_aspect("equal", adjustable="box")
+    eje.set_xlim(-73.5, -53.5)
+    eje.set_ylim(-55.5, -21.5)
     eje.set_title(f"Distribución geográfica de clusters (k={resultados['k_optimo']})")
     eje.set_xlabel("Longitud")
     eje.set_ylabel("Latitud")
     eje.grid(alpha=0.3)
+    leyenda = [
+        Patch(facecolor=colores[cluster], edgecolor="black", label=f"Cluster {cluster}")
+        for cluster in range(cantidad_clusters)
+    ]
+    eje.legend(
+        handles=leyenda,
+        title="Clusters",
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        fontsize=7,
+        title_fontsize=8,
+        ncol=2,
+    )
     figura.tight_layout()
     figura.savefig(ruta, dpi=150)
     plt.close(figura)
@@ -324,9 +359,13 @@ def graficar_mapa_geopandas(resultados, coordenadas, ruta):
         geometry=gpd.points_from_xy(mapa["Longitud"], mapa["Latitud"]),
         crs="EPSG:4326",
     )
-    colores = plt.cm.nipy_spectral(
-        np.linspace(0, 1, resultados["k_optimo"], endpoint=False)
-    )
+    cantidad_clusters = resultados["k_optimo"]
+    colores = np.array([
+        plt.cm.tab20(indice % 20)
+        if indice < 20
+        else plt.cm.tab20b(indice - 20)
+        for indice in range(cantidad_clusters)
+    ])
 
     figura, eje = plt.subplots(figsize=(10, 14))
     argentina.plot(
@@ -359,6 +398,19 @@ def graficar_mapa_geopandas(resultados, coordenadas, ruta):
     eje.set_xlabel("Longitud")
     eje.set_ylabel("Latitud")
     eje.set_title(f"Distribución geográfica de clusters (k={resultados['k_optimo']})")
+    leyenda = [
+        Patch(facecolor=colores[cluster], edgecolor="black", label=f"Cluster {cluster}")
+        for cluster in range(cantidad_clusters)
+    ]
+    eje.legend(
+        handles=leyenda,
+        title="Clusters",
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        fontsize=7,
+        title_fontsize=8,
+        ncol=2,
+    )
     figura.tight_layout()
     figura.savefig(ruta, dpi=150)
     plt.close(figura)
