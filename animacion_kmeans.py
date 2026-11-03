@@ -1,9 +1,4 @@
-"""Genera un GIF con la convergencia de dos ejecuciones de K-Means.
-
-El panel izquierdo usa el k óptimo según la silueta y el derecho usa la
-referencia teórica de 23 clusters. PCA se utiliza únicamente para visualizar
-los datos en dos dimensiones; K-Means sigue trabajando con todos los atributos.
-"""
+"""Genera un GIF con la convergencia del K-Means óptimo."""
 
 from pathlib import Path
 
@@ -12,15 +7,15 @@ import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 from sklearn.decomposition import PCA
 
-from analisis_rios import analizar
+from analisis_rios import analizar, desplazar_puntos_superpuestos
 
 
 # Reutiliza el mismo pipeline, incluyendo normalización, logaritmo y SOM.
 analisis = analizar()
 datos = analisis["datos"]
 k_optimo = analisis["k_optimo"]
-k_teorico = analisis["k_teorico"]
-salida = Path(__file__).parent / "kmeans_comparacion.gif"
+salida = Path(__file__).parent / "resultados" / "kmeans_comparacion.gif"
+salida.parent.mkdir(exist_ok=True)
 SEMILLA = 42  # Hace reproducible la selección de centros iniciales.
 EPOCAS = 30  # Límite máximo de iteraciones que se muestran.
 
@@ -60,13 +55,13 @@ def completar_pasos(pasos, cantidad):
 # PCA reduce la dimensión solo para graficar; no modifica los datos de K-Means.
 pca = PCA(n_components=2)
 datos_2d = pca.fit_transform(datos)
+datos_2d = desplazar_puntos_superpuestos(datos_2d)
 pasos_optimo = pasos_kmeans(datos, k_optimo, EPOCAS)
-pasos_teorico = pasos_kmeans(datos, k_teorico, EPOCAS)
-cantidad_frames = max(len(pasos_optimo), len(pasos_teorico))
+cantidad_frames = len(pasos_optimo)
 pasos_optimo = completar_pasos(pasos_optimo, cantidad_frames)
-pasos_teorico = completar_pasos(pasos_teorico, cantidad_frames)
 
-fig, ejes = plt.subplots(1, 2, figsize=(14, 6))
+fig, ejes = plt.subplots(figsize=(8, 6))
+ejes = [ejes]
 limites = np.ptp(datos_2d, axis=0)
 margen = np.maximum(limites * 0.1, 1)
 for eje in ejes:
@@ -75,7 +70,7 @@ for eje in ejes:
     eje.set_xlabel("Componente principal 1")
     eje.set_ylabel("Componente principal 2")
 
-# Colección gráfica de los ríos para cada panel.
+# Colección gráfica de los ríos y centroides.
 puntos = [eje.scatter([], [], s=45) for eje in ejes]
 centros = [
     eje.scatter([], [], marker="X", s=180, edgecolors="black")
@@ -89,9 +84,9 @@ def actualizar(frame):
         ejes,
         puntos,
         centros,
-        [pasos_optimo, pasos_teorico],
-        [k_optimo, k_teorico],
-        ["Óptimo matemático", "Referencia teórica"],
+        [pasos_optimo],
+        [k_optimo],
+        ["Óptimo matemático"],
     ):
         etiquetas, centros_originales = pasos[frame]
         # Se genera un color diferente por cluster.

@@ -1,11 +1,15 @@
-"""Pipeline de preparación, reducción de ruido y clasificación de ríos.
-El módulo trabaja únicamente con los doce caudales mensuales. Primero los
-normaliza por Qmod, luego reduce valores extremos con log1p, estandariza cada
-mes, suaviza los perfiles con un SOM y finalmente evalúa K-Means.
-"""
+"Preparacion, reduccion de ruido y clasificacion de ruidos"
+#Se utilizan vectores de 12 valores de caudales mensuales normalizados por Qmod
+#Qmod = caudal medio anual del río
+#Reduccion de valores extremos con log1p
+#Estandarizacion de cada mes con StandardScaler (media 0 y desviación estándar 1)
+#Suavizado de perfiles con un SOM para reducir ruido (reemplazo de cada perfil por el prototipo de su neurona ganadora)
+#Evaluacion con kmeans
+
 
 from pathlib import Path
 import matplotlib.pyplot as plt
+from minisom import MiniSom
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
@@ -22,8 +26,6 @@ MESES = [
     "Sep", "Oct", "Nov", "Dic", "Ene", "Feb",
     "Mar", "Abr", "May", "Jun", "Jul", "Ago",
 ]
-# Cantidad de clusters definida como referencia por el análisis manual.
-K_TEORICO = 23
 # Máximo k utilizado en las curvas de codo y silueta.
 K_MAXIMO = 40
 # El SOM tiene 100 neuronas organizadas en diez filas y diez columnas.
@@ -33,25 +35,27 @@ SEMILLA = 42
 
 
 def cargar_caudales():
-    """Carga los CSV y devuelve un perfil normalizado por cada código.
-    Si un código aparece en varios archivos, se calcula la media de sus
-    caudales mensuales y de su Qmod antes de normalizar.
+    """Carga los CSV y devuelve los 12 valores normalizados para cada código.
+
+    Si un código aparece varias veces, se calcula la media de sus caudales
+    mensuales y de su Qmod antes de normalizar.
     """
     carpeta = Path(__file__).parent
     # Se buscan los archivos relativos a este módulo para que el programa
-    # funcione aunque se ejecute desde otro directorio. / "csv"
-    archivos = sorted(carpeta.glob("estaciones_final*.csv"))
+    # funcione aunque se ejecute desde otro directorio.
+    archivos = sorted((carpeta / "csv").glob("estaciones_final*.csv"))
     estaciones = pd.concat(
         (pd.read_csv(archivo, encoding="latin1") for archivo in archivos),
         ignore_index=True,
     )
+    #Concatena los archivos y elimina duplicados, dejando la primera ocurrencia de cada código.
     # Convierte texto numérico a números; los valores inválidos quedan como NaN.
     estaciones["Codigo"] = pd.to_numeric(estaciones["Codigo"], errors="coerce")
     estaciones["Qmod"] = pd.to_numeric(estaciones["Qmod"], errors="coerce")
-    # Sin código no se puede identificar el río y sin Qmod no se puede
-    # normalizarlo, por eso esas filas se eliminan.
     estaciones = estaciones.dropna(subset=["Codigo", "Qmod"]).copy()
+    #Si la estacion no tiene codigo o Qmod, no se puede normalizar y se elimina del análisis.
     estaciones["Codigo"] = estaciones["Codigo"].astype(int)
+    # Elimina estaciones con caudales negativos, que no tienen sentido físico.
 
     # Une filas con el mismo código y obtiene un único perfil mensual.
     caudales = estaciones.groupby("Codigo", sort=True)[MESES].mean()
@@ -72,39 +76,21 @@ def preparar_datos(caudales):
 
 
 def entrenar_som(datos, filas, columnas, epocas=200):
-    """Entrena un mapa autoorganizado y devuelve sus prototipos.
-    La neurona más cercana a cada vector se llama ganadora. La ganadora y sus
-    vecinas se actualizan juntas, por lo que perfiles similares quedan cerca
-    dentro de la grilla.
-    """
-    rng = np.random.default_rng(SEMILLA)
-    # Cada prototipo tiene la misma cantidad de atributos que un río.
-    prototipos = rng.normal(
-        datos.mean(axis=0),
-        datos.std(axis=0) + 1e-12,
-        size=(filas, columnas, datos.shape[1]),
+    """Entrena un SOM de MiniSom y devuelve sus prototipos."""
+    # sigma controla el radio inicial de vecindad y learning_rate la magnitud
+    # de la actualización. MiniSom reduce ambos valores durante el entrenamiento.
+    som = MiniSom(
+        x=filas,
+        y=columnas,
+        input_len=datos.shape[1],
+        sigma=max(filas, columnas) / 2,
+        learning_rate=0.5,
+        neighborhood_function="gaussian",
+        random_seed=SEMILLA,
     )
-    # Coordenadas fila/columna de cada neurona para calcular vecindades.
-    posiciones = np.indices((filas, columnas)).transpose(1, 2, 0)
-    radio_inicial = max(filas, columnas) / 2
-
-    for epoca in range(epocas):
-        # La tasa de aprendizaje y el radio disminuyen gradualmente:
-        # primero se ordena el mapa globalmente y luego se ajusta localmente.
-        progreso = epoca / max(epocas - 1, 1)
-        tasa = 0.5 * (0.05 / 0.5) ** progreso
-        radio = radio_inicial * (1 / radio_inicial) ** progreso
-        for indice in rng.permutation(len(datos)):
-            vector = datos[indice]
-            # Encuentra la neurona cuyo prototipo está más cerca del vector.
-            distancias = np.linalg.norm(prototipos - vector, axis=2)
-            ganador = np.unravel_index(np.argmin(distancias), distancias.shape)
-            # Calcula la distancia de cada neurona a la neurona ganadora.
-            distancia_mapa = np.sum((posiciones - ganador) ** 2, axis=2)
-            # Las neuronas cercanas reciben una actualización más grande.
-            vecindad = np.exp(-distancia_mapa / (2 * radio**2))
-            prototipos += tasa * vecindad[:, :, None] * (vector - prototipos)
-    return prototipos
+    som.random_weights_init(datos)
+    som.train_random(datos, num_iteration=epocas, verbose=False)
+    return som.get_weights()
 
 
 def suavizar_con_som(datos):
@@ -172,50 +158,293 @@ def analizar():
     # El óptimo matemático se define como la silueta máxima.
     k_optimo = int(metricas.loc[metricas["silueta"].idxmax(), "k"])
     k_codo = calcular_codo(metricas["inercia"].to_numpy(), valores_k)
-    # Conserva la comparación entre el óptimo y los 23 grupos teóricos.
-    comparacion = metricas[metricas["k"].isin([k_optimo, K_TEORICO])].sort_values("k")
     asignaciones = pd.DataFrame({"Codigo": caudales.index})
-    for k, nombre in [
-        (k_optimo, "Cluster_optimo"),
-        (K_TEORICO, "Cluster_teorico"),
-    ]:
-        # Guarda la etiqueta de cluster correspondiente a cada código.
-        asignaciones[nombre] = modelos[k].labels_
+    # Guarda la etiqueta del cluster óptimo para cada código.
+    asignaciones["Cluster_optimo"] = modelos[k_optimo].labels_
     return {
         "codigos": caudales.index.to_numpy(),
+        "caudales": caudales,
         "datos": datos_suavizados,
         "prototipos_som": prototipos_som,
         "metricas": metricas.sort_values("silueta", ascending=False),
         "modelos": modelos,
         "k_optimo": k_optimo,
         "k_codo": k_codo,
-        "k_teorico": K_TEORICO,
-        "comparacion": comparacion,
         "asignaciones": asignaciones,
     }
 
 
-def graficar_resultados(resultados):
-    """Dibuja el método del codo y la curva de silueta."""
+def graficar_resultados(resultados, ruta=None):
+    """Dibuja y opcionalmente guarda el método del codo y la silueta."""
     metricas = resultados["metricas"].sort_values("k")
     k_optimo = resultados["k_optimo"]
-    k_teorico = resultados["k_teorico"]
     fig, ejes = plt.subplots(1, 2, figsize=(14, 5))
 
     # La inercia baja al aumentar k; el codo marca una mejora decreciente.
     ejes[0].plot(metricas["k"], metricas["inercia"], marker="o")
     ejes[0].axvline(k_optimo, color="red", linestyle="--", label=f"Óptimo: {k_optimo}")
-    ejes[0].axvline(k_teorico, color="green", linestyle=":", label=f"Teórico: {k_teorico}")
     ejes[0].set(title="Método del codo", xlabel="k", ylabel="Inercia")
 
     # La silueta compara simultáneamente cohesión y separación de clusters.
     ejes[1].plot(metricas["k"], metricas["silueta"], marker="o")
     ejes[1].axvline(k_optimo, color="red", linestyle="--", label=f"Óptimo: {k_optimo}")
-    ejes[1].axvline(k_teorico, color="green", linestyle=":", label=f"Teórico: {k_teorico}")
     ejes[1].set(title="Coeficiente de silueta", xlabel="k", ylabel="Silueta")
 
     for eje in ejes:
         eje.grid(alpha=0.3)
         eje.legend()
     plt.tight_layout()
+    if ruta is not None:
+        fig.savefig(ruta, dpi=150)
     plt.show()
+
+
+def graficar_espacio_solucion(resultados, ruta):
+    """Guarda una proyección PCA con los ríos y centroides del k óptimo."""
+    from sklearn.decomposition import PCA
+
+    modelo = resultados["modelos"][resultados["k_optimo"]]
+    datos = resultados["datos"]
+    pca = PCA(n_components=2)
+    datos_2d = pca.fit_transform(datos)
+    centroides_2d = pca.transform(modelo.cluster_centers_)
+    etiquetas = modelo.labels_
+    colores = plt.cm.nipy_spectral(
+        np.linspace(0, 1, resultados["k_optimo"], endpoint=False)
+    )
+    # El SOM puede asignar varios ríos al mismo prototipo. Se agrega un
+    # desplazamiento visual pequeño para que los 87 códigos sean visibles.
+    datos_2d = desplazar_puntos_superpuestos(datos_2d)
+
+    figura, eje = plt.subplots(figsize=(10, 8))
+    eje.scatter(
+        datos_2d[:, 0],
+        datos_2d[:, 1],
+        c=colores[etiquetas],
+        s=55,
+        edgecolors="black",
+        linewidths=0.3,
+    )
+    for codigo, punto in zip(resultados["codigos"], datos_2d):
+        eje.annotate(str(codigo), punto, xytext=(3, 3), textcoords="offset points", fontsize=6)
+    eje.scatter(
+        centroides_2d[:, 0],
+        centroides_2d[:, 1],
+        c=colores,
+        marker="X",
+        s=180,
+        edgecolors="black",
+        linewidths=0.8,
+    )
+    eje.set_title(f"Espacio de solución K-Means (k={resultados['k_optimo']})")
+    eje.set_xlabel("Componente principal 1")
+    eje.set_ylabel("Componente principal 2")
+    eje.grid(alpha=0.3)
+    figura.tight_layout()
+    figura.savefig(ruta, dpi=150)
+    plt.close(figura)
+
+
+def coordenadas_a_decimal(coordenada):
+    """Convierte coordenadas DMS con orientación S/O a grados decimales."""
+    partes = coordenada.astype(str).str.extract(
+        r"(?P<grados>\d+).*?(?P<minutos>\d+).*?"
+        r"(?P<segundos>\d+(?:\.\d+)?).*?(?P<sentido>[SO])",
+        expand=True,
+    )
+    valor = (
+        pd.to_numeric(partes["grados"], errors="coerce")
+        + pd.to_numeric(partes["minutos"], errors="coerce") / 60
+        + pd.to_numeric(partes["segundos"], errors="coerce") / 3600
+    )
+    return valor.where(~partes["sentido"].isin(["S", "O"]), -valor)
+
+
+def graficar_mapa_clusters(resultados, coordenadas, ruta):
+    """Guarda la distribución geográfica de los ríos coloreada por cluster."""
+    modelo = resultados["modelos"][resultados["k_optimo"]]
+    mapa = coordenadas.copy()
+    mapa["Codigo"] = pd.to_numeric(mapa["Codigo"], errors="coerce")
+    mapa["Latitud"] = coordenadas_a_decimal(mapa["Latitud"])
+    mapa["Longitud"] = coordenadas_a_decimal(mapa["Longitud"])
+    mapa = mapa.dropna(subset=["Codigo", "Latitud", "Longitud"]).copy()
+    mapa["Codigo"] = mapa["Codigo"].astype(int)
+    mapa = mapa.merge(resultados["asignaciones"], on="Codigo", how="inner")
+    colores = plt.cm.nipy_spectral(
+        np.linspace(0, 1, resultados["k_optimo"], endpoint=False)
+    )
+
+    figura, eje = plt.subplots(figsize=(10, 12))
+    eje.scatter(
+        mapa["Longitud"],
+        mapa["Latitud"],
+        c=colores[mapa["Cluster_optimo"]],
+        s=65,
+        edgecolors="black",
+        linewidths=0.4,
+    )
+    for _, rio in mapa.iterrows():
+        eje.annotate(
+            str(rio["Rio"]),
+            (rio["Longitud"], rio["Latitud"]),
+            xytext=(3, 3),
+            textcoords="offset points",
+            fontsize=6,
+        )
+    eje.set_aspect("equal", adjustable="box")
+    eje.set_title(f"Distribución geográfica de clusters (k={resultados['k_optimo']})")
+    eje.set_xlabel("Longitud")
+    eje.set_ylabel("Latitud")
+    eje.grid(alpha=0.3)
+    figura.tight_layout()
+    figura.savefig(ruta, dpi=150)
+    plt.close(figura)
+
+
+def graficar_mapa_geopandas(resultados, coordenadas, ruta):
+    """Guarda el mapa de Argentina con provincias y ríos clasificados."""
+    import geopandas as gpd
+
+    url_provincias = (
+        "https://naturalearth.s3.amazonaws.com/10m_cultural/"
+        "ne_10m_admin_1_states_provinces.zip"
+    )
+    provincias = gpd.read_file(url_provincias)
+    argentina = provincias[provincias["admin"] == "Argentina"]
+
+    mapa = coordenadas.copy()
+    mapa["Codigo"] = pd.to_numeric(mapa["Codigo"], errors="coerce")
+    mapa["Latitud"] = coordenadas_a_decimal(mapa["Latitud"])
+    mapa["Longitud"] = coordenadas_a_decimal(mapa["Longitud"])
+    mapa = mapa.dropna(subset=["Codigo", "Latitud", "Longitud"]).copy()
+    mapa["Codigo"] = mapa["Codigo"].astype(int)
+    mapa = mapa.merge(resultados["asignaciones"], on="Codigo", how="inner")
+    puntos = gpd.GeoDataFrame(
+        mapa,
+        geometry=gpd.points_from_xy(mapa["Longitud"], mapa["Latitud"]),
+        crs="EPSG:4326",
+    )
+    colores = plt.cm.nipy_spectral(
+        np.linspace(0, 1, resultados["k_optimo"], endpoint=False)
+    )
+
+    figura, eje = plt.subplots(figsize=(10, 14))
+    argentina.plot(
+        ax=eje,
+        facecolor="#f2efe6",
+        edgecolor="gray",
+        linewidth=0.6,
+        zorder=0,
+    )
+    puntos.plot(
+        ax=eje,
+        color=[colores[cluster] for cluster in puntos["Cluster_optimo"]],
+        markersize=60,
+        edgecolor="black",
+        linewidth=0.4,
+        zorder=3,
+    )
+    for _, rio in puntos.iterrows():
+        eje.annotate(
+            str(rio["Rio"]),
+            (rio.geometry.x, rio.geometry.y),
+            xytext=(3, 3),
+            textcoords="offset points",
+            fontsize=6,
+            zorder=4,
+        )
+    eje.set_xlim(-73.5, -53.5)
+    eje.set_ylim(-55.5, -21.5)
+    eje.set_aspect("equal")
+    eje.set_xlabel("Longitud")
+    eje.set_ylabel("Latitud")
+    eje.set_title(f"Distribución geográfica de clusters (k={resultados['k_optimo']})")
+    figura.tight_layout()
+    figura.savefig(ruta, dpi=150)
+    plt.close(figura)
+
+
+def generar_histogramas(resultados, carpeta, nombres_por_codigo=None):
+    """Genera perfiles medios por cluster y perfiles individuales por río."""
+    carpeta_por_cluster = carpeta / "por_cluster"
+    carpeta_por_rio = carpeta / "por rio"
+    carpeta_por_cluster.mkdir(parents=True, exist_ok=True)
+    carpeta_por_rio.mkdir(parents=True, exist_ok=True)
+
+    modelo = resultados["modelos"][resultados["k_optimo"]]
+    asignaciones = pd.DataFrame(
+        {
+            "Codigo": resultados["codigos"],
+            "Cluster": modelo.labels_,
+        }
+    )
+    caudales = resultados["caudales"].copy()
+    caudales["Cluster"] = modelo.labels_
+    medias = caudales.groupby("Cluster")[MESES].mean()
+
+    # Se agrupan como máximo nueve clusters por imagen para que sean legibles.
+    clusters = sorted(medias.index)
+    for inicio in range(0, len(clusters), 9):
+        grupo_clusters = clusters[inicio:inicio + 9]
+        figura, ejes = plt.subplots(3, 3, figsize=(15, 12), squeeze=False)
+        for eje, cluster in zip(ejes.flat, grupo_clusters):
+            eje.bar(MESES, medias.loc[cluster])
+            eje.set_title(f"Cluster {cluster} - perfil medio")
+            eje.set_xlabel("Mes")
+            eje.set_ylabel("Caudal normalizado")
+            eje.grid(alpha=0.3)
+        for eje in ejes.flat[len(grupo_clusters):]:
+            eje.set_visible(False)
+        figura.tight_layout()
+        figura.savefig(
+            carpeta_por_cluster / f"clusters_{inicio + 1:02d}_{inicio + len(grupo_clusters):02d}.png",
+            dpi=150,
+        )
+        plt.close(figura)
+
+    # Cada archivo contiene todos los perfiles mensuales de los ríos del cluster.
+    for cluster in clusters:
+        codigos = asignaciones.loc[
+            asignaciones["Cluster"] == cluster,
+            "Codigo",
+        ].tolist()
+        cantidad_columnas = 3
+        cantidad_filas = max(1, int(np.ceil(len(codigos) / cantidad_columnas)))
+        figura, ejes = plt.subplots(
+            cantidad_filas,
+            cantidad_columnas,
+            figsize=(15, 4 * cantidad_filas),
+            squeeze=False,
+        )
+        for eje, codigo in zip(ejes.flat, codigos):
+            eje.bar(MESES, caudales.loc[codigo, MESES])
+            nombre = (
+                nombres_por_codigo.get(codigo, f"Río {codigo}")
+                if nombres_por_codigo
+                else f"Río {codigo}"
+            )
+            eje.set_title(f"{nombre} ({codigo}) - cluster {cluster}")
+            eje.set_xlabel("Mes")
+            eje.set_ylabel("Caudal normalizado")
+            eje.grid(alpha=0.3)
+        for eje in ejes.flat[len(codigos):]:
+            eje.set_visible(False)
+        figura.tight_layout()
+        figura.savefig(carpeta_por_rio / f"cluster_{cluster:02d}.png", dpi=150)
+        plt.close(figura)
+
+
+def desplazar_puntos_superpuestos(puntos):
+    """Separa visualmente puntos idénticos sin modificar sus datos."""
+    resultado = puntos.copy()
+    rng = np.random.default_rng(SEMILLA)
+    for punto in np.unique(puntos, axis=0):
+        indices = np.flatnonzero(np.all(puntos == punto, axis=1))
+        if len(indices) > 1:
+            escala = max(np.ptp(puntos, axis=0).max() * 0.008, 0.01)
+            resultado[indices] += rng.normal(
+                0,
+                escala,
+                size=(len(indices), puntos.shape[1]),
+            )
+    return resultado
