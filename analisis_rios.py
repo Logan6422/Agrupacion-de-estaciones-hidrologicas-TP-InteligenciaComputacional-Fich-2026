@@ -154,7 +154,12 @@ def evaluar_clusters(datos, valores_k):
     return pd.DataFrame(filas), modelos
 
 
-def analizar(k_seleccionado=None, carpeta_datos=None, patron="estaciones_final*.csv"):
+def analizar(
+    k_seleccionado=None,
+    carpeta_datos=None,
+    patron="estaciones_final*.csv",
+    k_maximo=None,
+):
     """Ejecuta el pipeline completo y permite seleccionar el número de clusters."""
     caudales = cargar_caudales(carpeta_datos, patron)
     datos = preparar_datos(caudales)
@@ -162,7 +167,8 @@ def analizar(k_seleccionado=None, carpeta_datos=None, patron="estaciones_final*.
     datos_suavizados, prototipos_som, tamano_som = suavizar_con_som(datos)
     # Se empieza en 2 porque las métricas de separación no tienen sentido con
     # un único cluster.
-    valores_k = np.arange(2, min(K_MAXIMO, len(datos) - 1) + 1)
+    limite_k = K_MAXIMO if k_maximo is None else k_maximo
+    valores_k = np.arange(2, min(limite_k, len(datos) - 1) + 1)
     metricas, modelos = evaluar_clusters(datos_suavizados, valores_k)
     # El óptimo matemático se define como la silueta máxima.
     k_optimo = int(metricas.loc[metricas["silueta"].idxmax(), "k"])
@@ -276,7 +282,8 @@ def coordenadas_a_decimal(coordenada):
         + pd.to_numeric(partes["minutos"], errors="coerce") / 60
         + pd.to_numeric(partes["segundos"], errors="coerce") / 3600
     )
-    return valor.where(~partes["sentido"].isin(["S", "O"]), -valor)
+    valor = valor.where(~partes["sentido"].isin(["S", "O"]), -valor)
+    return numericas.fillna(valor)
 
 
 def graficar_mapa_clusters(resultados, coordenadas, ruta):

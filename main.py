@@ -17,6 +17,16 @@ CARPETA_ANALISIS = CARPETA_BASE
 CARPETA_EXTRA = Path(__file__).parent / "extra"
 
 coordenadas = pd.read_csv(CARPETA_EXTRA / "coordenadas.csv")
+coordenadas_buenos_aires = pd.read_csv(
+    CARPETA_BASE / "csv" / "estaciones_final - Buenos Aires.csv",
+    encoding="latin1",
+)
+coordenadas_buenos_aires["Latitud"] = -coordenadas_buenos_aires["Latitud"].abs()
+coordenadas_buenos_aires["Longitud"] = -coordenadas_buenos_aires["Longitud"].abs()
+coordenadas = pd.concat(
+    [coordenadas, coordenadas_buenos_aires],
+    ignore_index=True,
+)
 coordenadas["Codigo"] = pd.to_numeric(coordenadas["Codigo"], errors="coerce")
 coordenadas["Codigo"] = coordenadas["Codigo"].astype("Int64")
 nombres_por_codigo = (

@@ -19,6 +19,16 @@ CARPETA_DATOS = CARPETA_BASE / "csv" / "datosetapa2"
 CARPETA_SALIDA = CARPETA_BASE / "datosetapa2"
 CARPETA_EXTRA = CARPETA_BASE / "extra"
 COORDENADAS = pd.read_csv(CARPETA_EXTRA / "coordsetapa2.csv")
+COORDENADAS_BA = pd.read_csv(
+    CARPETA_BASE / "csv" / "datosetapa2" / "DatosEtapa2 - Buenos Aires.csv",
+    encoding="latin1",
+)
+COORDENADAS_BA["Latitud"] = -COORDENADAS_BA["Latitud"].abs()
+COORDENADAS_BA["Longitud"] = -COORDENADAS_BA["Longitud"].abs()
+COORDENADAS = pd.concat(
+    [COORDENADAS, COORDENADAS_BA],
+    ignore_index=True,
+)
 COORDENADAS["Codigo"] = pd.to_numeric(COORDENADAS["Codigo"], errors="coerce")
 COORDENADAS["Codigo"] = COORDENADAS["Codigo"].astype("Int64")
 # El archivo usa magnitudes decimales para Argentina; el mapa necesita
@@ -45,6 +55,7 @@ def ejecutar_analisis(cantidad_clusters):
         k_seleccionado=cantidad_clusters,
         carpeta_datos=CARPETA_DATOS,
         patron="DatosEtapa2*.csv",
+        k_maximo=80,
     )
     graficar_resultados(resultados, carpeta_resultados / "metricas_kmeans.png")
     resultados["asignaciones"].to_csv(
@@ -97,5 +108,5 @@ def ejecutar_analisis(cantidad_clusters):
     print(f"k del codo: {resultados['k_codo']}")
 
 
-for cantidad_clusters in (8, 18, 40):
+for cantidad_clusters in (8, 18, 40, 60, 80):
     ejecutar_analisis(cantidad_clusters)
