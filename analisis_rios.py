@@ -92,12 +92,14 @@ def analizar(carpeta, patron, k_maximo, usar_qmod=True, usar_log=True, usar_scal
 def guardar_metricas(analisis, ruta):
     fig, ejes = plt.subplots(1, 2, figsize=(13, 5))
     metricas = analisis["metricas"].sort_values("k")
+    limite_x = max(45, int(metricas["k"].max()))
     ejes[0].plot(metricas["k"], metricas["inercia"], marker=".")
     ejes[0].set(title="MÃ©todo del codo", xlabel="k", ylabel="Inercia")
     ejes[1].plot(metricas["k"], metricas["silueta"], marker=".")
     ejes[1].axvline(analisis["optimo"], color="red", linestyle="--")
     ejes[1].set(title="Coeficiente de silueta", xlabel="k", ylabel="Silueta")
     for eje in ejes:
+        eje.set_xlim(1, limite_x)
         eje.grid(alpha=.3)
     fig.tight_layout()
     fig.savefig(ruta, dpi=150)
@@ -168,7 +170,7 @@ def cargar_coordenadas(archivos):
     return coordenadas.drop_duplicates("Codigo", keep="last").copy()
 
 
-def guardar_mapa(analisis, coordenadas, ruta, k, referencia):
+def guardar_mapa(analisis, coordenadas, ruta, k, referencia, mostrar_nombres=False):
     mapa = coordenadas.merge(
         pd.DataFrame({"Codigo": analisis["codigos"],
                       "Cluster": analisis["modelos"][k].labels_}),
@@ -194,6 +196,16 @@ def guardar_mapa(analisis, coordenadas, ruta, k, referencia):
         raise RuntimeError("No se pudo cargar el mapa de Argentina.") from error
     eje.scatter(mapa["Longitud"], mapa["Latitud"],
                 c=colores[mapa["Cluster"]], edgecolors="black", zorder=3)
+    if mostrar_nombres:
+        for _, rio in mapa.iterrows():
+            eje.annotate(
+                rio["Rio"],
+                (rio["Longitud"], rio["Latitud"]),
+                xytext=(3, 3),
+                textcoords="offset points",
+                fontsize=6,
+                zorder=4,
+            )
     eje.set(xlim=(-73.5, -53.5), ylim=(-55.5, -21.5),
             title=f"DistribuciÃ³n geogrÃ¡fica de clusters (k={k})",
             xlabel="Longitud", ylabel="Latitud")
