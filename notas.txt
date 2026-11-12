@@ -1,0 +1,79 @@
+#NO EXISTE K NATURAL, K SE ELIGE POR RESOLUCION DESEADA
+
+Selección de k
+Los datos no presentan un k natural. El gap statistic crece de forma monótona hasta k=50 
+(la regla de Tibshirani da k=7, pero poco confiable en este caso), y el ARI 
+de bootstrap cae de 0.96 a ~0.6 en k≈6 y se mantiene plano (0.55-0.65) hasta k=50. 
+Esto es coherente con que los hidrogramas forman un continuo de regímenes. 
+Por eso se eligieron dos niveles de resolución según la convergencia de varios criterios, 
+y no un único óptimo.
+Resolución fina: k=15. En este valor coinciden picos locales de las tres métricas internas: 
+silueta ≈0.258, Calinski-Harabasz con un máximo local y Davies-Bouldin con un mínimo local 
+(≈0.86). La coherencia espacial es 0.38, contra 0.08 esperado por azar (exceso de 0.30), 
+es decir que los ríos geográficamente vecinos comparten grupo con una frecuencia varias veces
+mayor a la casual. No presenta centroides redundantes (ningún par de hidrogramas medios con 
+correlación >0.98). El ARI de bootstrap es 0.62, igual que el de otros k mayores, por lo que 
+la estabilidad no penaliza esta elección. En comparación, k=37 
+(número de subzonas de ramonell) muestra una coherencia espacial de 0.20 (exceso 0.17) y 
+3 pares de centroides redundantes, lo que indica una fragmentación excesiva con estos datos.
+Resolución gruesa: k=9. Es el k de mayor ARI de bootstrap en el rango 6-10 (≈0.64), 
+con silueta ≈0.26, coherencia espacial ≈0.45 contra ≈0.10 del azar, y un salto marcado 
+en el gap. Representa las familias de régimen más robustas, que luego se subdividen en los 15
+grupos de la resolución fina.
+Limitaciones. El ARI ≈0.62 indica estabilidad moderada: una parte de los ríos cambia de grupo
+entre submuestras, probablemente los de régimen intermedio dentro del continuo. Estos casos 
+son los candidatos a validar con el criterio del especialista.
+
+
+Gap statistic
+Compara cuánto se compactan tus datos con k grupos contra datos aleatorios sin estructura.
+Si tus datos se agrupan mucho mejor que el azar, el gap es alto. La regla de Tibshirani elige
+el menor k donde agregar un cluster más ya no mejora significativamente. Si el gap sube 
+siempre, no hay grupos naturales.
+
+Bootstrap de estabilidad (ARI)
+Reagrupás con 80% de los ríos elegidos al azar, repetís 50 veces y comparás cada resultado 
+con la partición completa. Si los grupos son reales, deberían reproducirse. El resultado se 
+resume con el ARI.
+
+ARI (Adjusted Rand Index)
+Mide cuánto coinciden dos particiones, corregido por azar. 1 = idénticas,
+0 = coincidencia casual. Con 0.62, aproximadamente un tercio de los ríos cambia de grupo 
+entre repeticiones.
+
+Silueta
+Para cada río compara su distancia media a su propio cluster con la distancia al cluster 
+más cercano. Va de -1 a 1, y más alto significa grupos más compactos y separados. 
+Valores de 0.25 indican estructura débil, típica de un continuo.
+
+Calinski-Harabasz
+Cociente entre la dispersión entre clusters y la dispersión dentro de ellos. 
+Más alto es mejor.
+
+Davies-Bouldin
+Promedia, para cada cluster, qué tan solapado está con su vecino más parecido 
+(dispersión interna dividida por distancia entre centroides). Más bajo es mejor.
+
+Coherencia espacial
+Para cada río, la fracción de sus 8 vecinos geográficos más cercanos que caen en 
+su mismo cluster. Mide si los grupos de régimen hidrológico forman regiones en el mapa.
+
+Línea base de azar: la misma métrica con las etiquetas mezcladas aleatoriamente.
+Exceso: real menos azar. Es lo que importa, porque aísla la estructura geográfica genuina.
+
+Centroides redundantes
+Se calcula el hidrograma medio de cada cluster y se correlacionan de a pares. 
+Si dos tienen correlación >0.98, tienen casi la misma forma y el k está partiendo 
+un grupo en dos sin motivo hidrológico.
+
+
+
+Selección de k (etapa 2)
+
+Los datos no presentan un k natural. El gap statistic crece de forma monótona hasta k=50 (la regla de Tibshirani da k=8, poco confiable en este caso), y la silueta, Calinski-Harabasz y Davies-Bouldin varían de forma monótona sin picos que marquen un óptimo. Esto es coherente con que los hidrogramas forman un continuo de regímenes. Por eso se eligieron dos niveles de resolución, según la convergencia de criterios de estabilidad, coherencia geográfica y redundancia entre grupos, y no un único óptimo.
+
+Resolución fina: k=15. La estabilidad por bootstrap (50 submuestras del 80%) da un ARI de 0.70, que es alto para el rango y se mantiene por encima de 0.6 en todos los k evaluados. La coherencia espacial, medida como la fracción de los 8 vecinos geográficos más cercanos que comparten grupo, muestra un exceso de 0.42 sobre el azar (cociente 6.5), de los mejores valores del rango. Entre k=9 y k=16 ese exceso se mantiene en 0.38-0.43 y cae a ~0.30 a partir de k=17. Además, la cantidad de pares de grupos con hidrogramas medios casi idénticos (correlación >0.98) es 0-1 hasta k=17 y crece a 2-9 desde k=18, lo que indica que más allá de ese punto el algoritmo subdivide grupos sin diferencia hidrológica apreciable. En k=15 hay un único par de este tipo, con distancia mínima entre centroides de 0.78. Por contraste, k=37 (número de subzonas de la clasificación previa) presenta 5 pares redundantes, ARI de 0.59 y exceso de coherencia de 0.26.
+
+Resolución gruesa: k=10. Es el único k del rango 9-40 sin pares de centroides redundantes, con un ARI de 0.73 (el máximo del rango) y un exceso de coherencia espacial de 0.38. Representa las familias de régimen más robustas, que se subdividen en la resolución fina.
+
+Limitaciones. El ARI de 0.70 indica estabilidad buena pero no total: una parte de los ríos, probablemente los de régimen intermedio dentro del continuo, cambia de grupo entre submuestras. Estos casos son los candidatos a validar con el criterio del especialista. Asimismo, k=15 admite un par de grupos redundante, aceptado como tolerancia de la subdivisión fina.
