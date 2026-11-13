@@ -1,4 +1,4 @@
-﻿"""Funciones compartidas para los anÃ¡lisis hidrolÃ³gicos."""
+"""Funciones compartidas para los análisis hidrológicos."""
 
 from pathlib import Path
 
@@ -94,7 +94,7 @@ def guardar_metricas(analisis, ruta):
     metricas = analisis["metricas"].sort_values("k")
     limite_x = max(45, int(metricas["k"].max()))
     ejes[0].plot(metricas["k"], metricas["inercia"], marker=".")
-    ejes[0].set(title="MÃ©todo del codo", xlabel="k", ylabel="Inercia")
+    ejes[0].set(title="Método del codo", xlabel="k", ylabel="Inercia")
     ejes[1].plot(metricas["k"], metricas["silueta"], marker=".")
     ejes[1].axvline(analisis["optimo"], color="red", linestyle="--")
     ejes[1].set(title="Coeficiente de silueta", xlabel="k", ylabel="Silueta")
@@ -118,7 +118,7 @@ def guardar_espacio(analisis, ruta, k):
                 edgecolors="black", linewidths=.3)
     eje.scatter(centros[:, 0], centros[:, 1], c=colores, marker="X",
                 s=160, edgecolors="black")
-    eje.set(title=f"Espacio de soluciÃ³n K-Means (k={k})",
+    eje.set(title=f"Espacio de solución K-Means (k={k})",
             xlabel="Componente principal 1", ylabel="Componente principal 2")
     eje.grid(alpha=.3)
     fig.tight_layout()
@@ -160,6 +160,16 @@ def cargar_coordenadas(archivos):
     tablas = []
     for ruta, positivas in archivos:
         tabla = pd.read_csv(ruta, encoding="latin1")
+        if "Rio" in tabla:
+            tabla["Rio"] = (
+                tabla["Rio"].astype(str)
+                .str.replace("\u00c3\x91", "Ñ", regex=False)
+                .str.replace("\u00c3\x89", "É", regex=False)
+                .str.replace("\u00c3\x9a", "Ú", regex=False)
+                .str.replace("\u00c3\x93", "Ó", regex=False)
+                .str.replace("\u00c3\x81", "Á", regex=False)
+                .str.replace("\u00c3\x8d", "Í", regex=False)
+            )
         tabla["Codigo"] = pd.to_numeric(tabla["Codigo"], errors="coerce")
         tabla["Latitud"] = _decimal(tabla["Latitud"], positivas)
         tabla["Longitud"] = _decimal(tabla["Longitud"], positivas)
@@ -207,7 +217,7 @@ def guardar_mapa(analisis, coordenadas, ruta, k, referencia, mostrar_nombres=Fal
                 zorder=4,
             )
     eje.set(xlim=(-73.5, -53.5), ylim=(-55.5, -21.5),
-            title=f"DistribuciÃ³n geogrÃ¡fica de clusters (k={k})",
+            title=f"Distribución geográfica de clusters (k={k})",
             xlabel="Longitud", ylabel="Latitud")
     eje.set_aspect("equal")
     eje.legend(
@@ -246,13 +256,13 @@ def guardar_histogramas(analisis, carpeta, k):
         )
         for eje, codigo in zip(ejes.flat, codigos):
             eje.bar(MESES, datos.loc[codigo, MESES])
-            eje.set_title(f"RÃ­o {codigo}")
+            eje.set_title(f"Río {codigo}")
             eje.set_xlabel("Mes")
             eje.set_ylabel("Caudal")
             eje.grid(alpha=.3)
         for eje in ejes.flat[len(codigos):]:
             eje.set_visible(False)
-        fig.suptitle(f"RÃ­os del cluster {cluster}", y=.995)
+        fig.suptitle(f"Ríos del cluster {cluster}", y=.995)
         fig.tight_layout()
         fig.savefig(carpeta_rios / f"cluster_{cluster:02d}_rios.png", dpi=120)
         plt.close(fig)

@@ -52,4 +52,9 @@ for k in (10, 15):
     generar_gif(analisis, destino, k)
     guardar_mapa(analisis, COORDENADAS, destino / "mapa_geopandas.png", k,
                  destino / "referencia_mapa.csv")
+    guardar_mapa(
+        analisis, COORDENADAS,
+        destino / "mapa_geopandas_con_nombres.png", k,
+        destino / "referencia_mapa.csv", mostrar_nombres=True,
+    )
     guardar_histogramas(analisis, destino / "histogramas", k)
