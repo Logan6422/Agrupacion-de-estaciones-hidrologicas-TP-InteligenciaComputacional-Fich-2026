@@ -12,6 +12,7 @@ from sklearn.metrics import (
     silhouette_score,
 )
 from sklearn.neighbors import BallTree
+from sklearn.preprocessing import StandardScaler
 
 
 # Configuración editable.
@@ -28,8 +29,8 @@ ARI_PISO = 0.55
 COHERENCIA_TOL = 0.03
 CORRELACION_REDUNDANTE = 0.98
 
-RUTA_RESULTADOS = Path("resultados_k_posicion.csv")
-RUTA_GRAFICO = Path("seleccion_k_posicion.png")
+RUTA_RESULTADOS = Path("resultados_k_altitud.csv")
+RUTA_GRAFICO = Path("seleccion_k_altitud.png")
 
 
 def cargar_datos():
@@ -54,9 +55,16 @@ def cargar_datos():
     coordenadas = coordenadas.reindex(X.index)
     validas = coordenadas[["Latitud", "Longitud"]].notna().all(axis=1)
     X = X.loc[validas]
-    coords = coordenadas.loc[validas, ["Latitud", "Longitud"]]
-    coords_array = coords.to_numpy(dtype=float)
-    return np.column_stack((X.to_numpy(dtype=float), coords_array)), coords_array
+    extras = coordenadas.loc[
+        validas, ["Latitud", "Longitud", "Altitud_msnm"]
+    ].copy()
+    extras["Altitud_msnm"] = extras["Altitud_msnm"].fillna(
+        extras["Altitud_msnm"].median()
+    )
+    X = np.column_stack((X.loc[validas].to_numpy(dtype=float),
+                         extras.to_numpy(dtype=float)))
+    X = StandardScaler().fit_transform(X)
+    return X, extras[["Latitud", "Longitud"]].to_numpy(dtype=float)
 
 
 def _modelo(X, k, n_init, seed):
@@ -234,8 +242,8 @@ def graficar(tabla, gap, k_grueso, k_fino):
 def ejecutar():
     X, coords = cargar_datos()
     X = np.asarray(X, dtype=np.float32)
-    if X.ndim != 2 or X.shape[1] != 14:
-        raise ValueError("X debe tener forma (n_rios, 14).")
+    if X.ndim != 2 or X.shape[1] != 15:
+        raise ValueError("X debe tener forma (n_rios, 15).")
     ks = list(KS)
     columnas_cache = {
         "k", "ari_boot", "ari_std", "gap", "gap_std",

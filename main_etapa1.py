@@ -16,6 +16,12 @@ COORDENADAS = cargar_coordenadas([
     (BASE / "csv" / "csv_etapa1" / "coordenadas.csv", False),
     (BASE / "csv" / "csv_etapa1" / "estaciones_final - Buenos Aires.csv", True),
 ])
+CARACTERISTICAS = COORDENADAS.set_index("Codigo")[
+    ["Latitud", "Longitud", "Altitud_msnm"]
+].copy()
+CARACTERISTICAS["Altitud_msnm"] = CARACTERISTICAS["Altitud_msnm"].fillna(
+    CARACTERISTICAS["Altitud_msnm"].median()
+)
 
 # Ejemplo: 10 m3/s pasa a 0.5 al dividirlo por Qmod=20.
 USAR_QMOD = True
@@ -26,12 +32,14 @@ USAR_STANDARSCALER = False
 
 
 analisis = analizar(
-    DATOS, "estaciones_final*.csv", 15,
+    DATOS, "estaciones_final*.csv", 23,
     USAR_QMOD, USAR_LOG, USAR_STANDARSCALER,
+    CARACTERISTICAS,
+    True,
 )
 analisis["metricas"].to_csv(SALIDA / "metricas_kmeans.csv", index=False)
 guardar_metricas(analisis, SALIDA / "metricas_kmeans.png")
-for k in (9, 15):
+for k in (9, 15, 23):
     if k in locals().get("_generados", set()):
         continue
     _generados = locals().get("_generados", set()) | {k}

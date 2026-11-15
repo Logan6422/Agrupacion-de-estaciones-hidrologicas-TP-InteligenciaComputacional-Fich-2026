@@ -74,10 +74,24 @@ def evaluar_clusters(datos, k_maximo):
     return metricas.sort_values("silueta", ascending=False), modelos, optimo
 
 
-def analizar(carpeta, patron, k_maximo, usar_qmod=True, usar_log=True, usar_scaler=True):
+def analizar(carpeta, patron, k_maximo, usar_qmod=True, usar_log=True,
+             usar_scaler=True, caracteristicas_extra=None,
+             escalar_vector=False):
     """Carga, normaliza y evalua los perfiles mensuales."""
     caudales, qmod = cargar_caudales(carpeta, patron)
     datos = normalizar(caudales, qmod, usar_qmod, usar_log, usar_scaler)
+    if caracteristicas_extra is not None:
+        extra = caracteristicas_extra.reindex(datos.index)
+        validas = extra.notna().all(axis=1)
+        caudales = caudales.loc[validas]
+        datos = datos.loc[validas]
+        datos = pd.concat([datos, extra.loc[validas]], axis=1)
+        if escalar_vector:
+            datos = pd.DataFrame(
+                StandardScaler().fit_transform(datos),
+                index=datos.index,
+                columns=datos.columns,
+            )
     metricas, modelos, optimo = evaluar_clusters(datos, k_maximo)
     return {
         "caudales": caudales,
@@ -171,6 +185,10 @@ def cargar_coordenadas(archivos):
                 .str.replace("\u00c3\x8d", "Í", regex=False)
             )
         tabla["Codigo"] = pd.to_numeric(tabla["Codigo"], errors="coerce")
+        if "Altitud_msnm" in tabla:
+            tabla["Altitud_msnm"] = pd.to_numeric(
+                tabla["Altitud_msnm"], errors="coerce"
+            )
         tabla["Latitud"] = _decimal(tabla["Latitud"], positivas)
         tabla["Longitud"] = _decimal(tabla["Longitud"], positivas)
         tablas.append(tabla)

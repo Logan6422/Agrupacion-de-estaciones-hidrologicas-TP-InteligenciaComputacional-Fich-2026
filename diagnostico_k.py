@@ -14,7 +14,7 @@ METRICAS = [
 
 
 def cargar_resultados():
-    resultados = pd.read_csv(Path(__file__).with_name("resultados_k_etapa2.csv"))
+    resultados = pd.read_csv(Path(__file__).with_name("resultados_k_altitud.csv"))
     faltantes = sorted(set(METRICAS) - set(resultados.columns))
     if faltantes:
         raise ValueError(f"Faltan columnas en resultados_k.csv: {faltantes}")
@@ -99,7 +99,7 @@ def graficar(tabla):
     for eje in ejes:
         eje.grid(alpha=.25)
     fig.tight_layout()
-    fig.savefig(Path(__file__).with_name("diagnostico_k_etapa2.png"), dpi=150)
+    fig.savefig(Path(__file__).with_name("diagnostico_k_altitud.png"), dpi=150)
     plt.close(fig)
 
 
