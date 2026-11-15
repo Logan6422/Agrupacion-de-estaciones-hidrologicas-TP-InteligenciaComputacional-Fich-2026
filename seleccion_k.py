@@ -28,8 +28,8 @@ ARI_PISO = 0.55
 COHERENCIA_TOL = 0.03
 CORRELACION_REDUNDANTE = 0.98
 
-RUTA_RESULTADOS = Path("resultados_k.csv")
-RUTA_GRAFICO = Path("seleccion_k.png")
+RUTA_RESULTADOS = Path("resultados_k_posicion.csv")
+RUTA_GRAFICO = Path("seleccion_k_posicion.png")
 
 
 def cargar_datos():
@@ -55,7 +55,8 @@ def cargar_datos():
     validas = coordenadas[["Latitud", "Longitud"]].notna().all(axis=1)
     X = X.loc[validas]
     coords = coordenadas.loc[validas, ["Latitud", "Longitud"]]
-    return X.to_numpy(dtype=float), coords.to_numpy(dtype=float)
+    coords_array = coords.to_numpy(dtype=float)
+    return np.column_stack((X.to_numpy(dtype=float), coords_array)), coords_array
 
 
 def _modelo(X, k, n_init, seed):
@@ -224,11 +225,7 @@ def graficar(tabla, gap, k_grueso, k_fino):
     for eje in ejes.flat:
         eje.grid(alpha=.25)
         eje.set_xlabel("k")
-        if k_grueso is not None:
-            eje.axvline(k_grueso, color="blue", linestyle="--")
-        if k_fino is not None:
-            eje.axvline(k_fino, color="green", linestyle="--")
-        eje.axvline(K_REF, color="gray", linestyle=":")
+        eje.axvline(15, color="green", linestyle="--")
     fig.tight_layout()
     fig.savefig(RUTA_GRAFICO, dpi=150)
     plt.close(fig)
@@ -237,8 +234,8 @@ def graficar(tabla, gap, k_grueso, k_fino):
 def ejecutar():
     X, coords = cargar_datos()
     X = np.asarray(X, dtype=np.float32)
-    if X.ndim != 2 or X.shape[1] != 12:
-        raise ValueError("X debe tener forma (n_rios, 12).")
+    if X.ndim != 2 or X.shape[1] != 14:
+        raise ValueError("X debe tener forma (n_rios, 14).")
     ks = list(KS)
     columnas_cache = {
         "k", "ari_boot", "ari_std", "gap", "gap_std",

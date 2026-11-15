@@ -27,12 +27,13 @@ def cargar_datos():
     validas = coordenadas[["Latitud", "Longitud"]].notna().all(axis=1)
     X = X.loc[validas]
     coords = coordenadas.loc[validas, ["Latitud", "Longitud"]]
-    return X.to_numpy(dtype=float), np.asarray(coords, dtype=float)
+    coords_array = np.asarray(coords, dtype=float)
+    return np.column_stack((X.to_numpy(dtype=float), coords_array)), coords_array
 
 
 _base.cargar_datos = cargar_datos
-_base.RUTA_RESULTADOS = Path("resultados_k_etapa2.csv")
-_base.RUTA_GRAFICO = Path("seleccion_k_etapa2.png")
+_base.RUTA_RESULTADOS = Path("resultados_k_etapa2_posicion.csv")
+_base.RUTA_GRAFICO = Path("seleccion_k_etapa2_posicion.png")
 
 
 if __name__ == "__main__":
