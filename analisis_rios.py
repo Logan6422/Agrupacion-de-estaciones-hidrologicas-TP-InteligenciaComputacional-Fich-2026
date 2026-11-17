@@ -79,11 +79,13 @@ def analizar(carpeta, patron, k_maximo, usar_qmod=True, usar_log=True,
              escalar_vector=False):
     """Carga, normaliza y evalua los perfiles mensuales."""
     caudales, qmod = cargar_caudales(carpeta, patron)
+    caudales_norm = caudales.div(qmod, axis=0)
     datos = normalizar(caudales, qmod, usar_qmod, usar_log, usar_scaler)
     if caracteristicas_extra is not None:
         extra = caracteristicas_extra.reindex(datos.index)
         validas = extra.notna().all(axis=1)
         caudales = caudales.loc[validas]
+        caudales_norm = caudales_norm.loc[validas]
         datos = datos.loc[validas]
         datos = pd.concat([datos, extra.loc[validas]], axis=1)
         if escalar_vector:
@@ -95,6 +97,7 @@ def analizar(carpeta, patron, k_maximo, usar_qmod=True, usar_log=True,
     metricas, modelos, optimo = evaluar_clusters(datos, k_maximo)
     return {
         "caudales": caudales,
+        "caudales_norm": caudales_norm,
         "datos": datos,
         "codigos": caudales.index.to_numpy(),
         "metricas": metricas,
@@ -169,25 +172,28 @@ def _decimal(serie, positivo=False):
     return valor.where(~partes["o"].isin(["S", "O"]), -valor)
 
 
+def _arreglar_texto(texto):
+    """Revierte textos UTF-8 leídos como latin1 (ej.: 'UrueÃ±a' -> 'Urueña')."""
+    try:
+        return texto.encode("latin1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return texto
+
+
 def cargar_coordenadas(archivos):
     """Une coordenadas; cada tupla es (ruta, coordenadas_decimales_positivas)."""
     tablas = []
     for ruta, positivas in archivos:
         tabla = pd.read_csv(ruta, encoding="latin1")
         if "Rio" in tabla:
-            tabla["Rio"] = (
-                tabla["Rio"].astype(str)
-                .str.replace("\u00c3\x91", "Ñ", regex=False)
-                .str.replace("\u00c3\x89", "É", regex=False)
-                .str.replace("\u00c3\x9a", "Ú", regex=False)
-                .str.replace("\u00c3\x93", "Ó", regex=False)
-                .str.replace("\u00c3\x81", "Á", regex=False)
-                .str.replace("\u00c3\x8d", "Í", regex=False)
-            )
+            tabla["Rio"] = tabla["Rio"].astype(str).map(_arreglar_texto)
         tabla["Codigo"] = pd.to_numeric(tabla["Codigo"], errors="coerce")
         if "Altitud_msnm" in tabla:
+            # Acepta coma decimal (ej. "67,11" -> 67.11).
             tabla["Altitud_msnm"] = pd.to_numeric(
-                tabla["Altitud_msnm"], errors="coerce"
+                tabla["Altitud_msnm"].astype(str).str.strip()
+                .str.replace(",", ".", regex=False),
+                errors="coerce",
             )
         tabla["Latitud"] = _decimal(tabla["Latitud"], positivas)
         tabla["Longitud"] = _decimal(tabla["Longitud"], positivas)
@@ -198,19 +204,42 @@ def cargar_coordenadas(archivos):
     return coordenadas.drop_duplicates("Codigo", keep="last").copy()
 
 
-def guardar_mapa(analisis, coordenadas, ruta, k, referencia, mostrar_nombres=False):
+def _separar_etiquetas(x, y, distancia=0.55, iteraciones=400):
+    """Desplaza levemente las etiquetas que se superponen.
+
+    Repulsión simple entre etiquetas más cercanas que `distancia` (en grados)
+    y un resorte débil que las mantiene cerca de su punto original.
+    """
+    origen = np.column_stack([x, y]).astype(float)
+    pos = origen.copy()
+    rng = np.random.default_rng(SEMILLA)
+    pos += rng.normal(scale=1e-3, size=pos.shape)
+    for _ in range(iteraciones):
+        diff = pos[:, None, :] - pos[None, :, :]
+        dist = np.linalg.norm(diff, axis=2)
+        np.fill_diagonal(dist, np.inf)
+        solape = np.clip(distancia - dist, 0, None)
+        if not solape.any():
+            break
+        empuje = (diff / dist[..., None] * solape[..., None]).sum(axis=1)
+        pos += 0.5 * empuje - 0.02 * (pos - origen)
+    return pos
+
+
+def _armar_mapa(coordenadas, analisis, k):
     mapa = coordenadas.merge(
         pd.DataFrame({"Codigo": analisis["codigos"],
                       "Cluster": analisis["modelos"][k].labels_}),
         on="Codigo",
         how="inner",
-    ).reset_index(drop=True)
-    mapa["Referencia"] = [f"R{i:03d}" for i in range(1, len(mapa) + 1)]
-    mapa[["Referencia", "Codigo", "Rio", "Cluster"]].to_csv(
-        referencia, index=False
     )
-    colores = plt.cm.nipy_spectral(np.linspace(0, 1, k, endpoint=False))
-    fig, eje = plt.subplots(figsize=(10, 14))
+    mapa = mapa.sort_values(["Cluster", "Latitud"], ascending=[True, False])
+    mapa = mapa.reset_index(drop=True)
+    mapa["Numero"] = np.arange(len(mapa))
+    return mapa
+
+
+def _base_argentina(eje):
     try:
         import geopandas as gpd
         provincias = gpd.read_file(
@@ -222,6 +251,24 @@ def guardar_mapa(analisis, coordenadas, ruta, k, referencia, mostrar_nombres=Fal
         )
     except Exception as error:
         raise RuntimeError("No se pudo cargar el mapa de Argentina.") from error
+
+
+def guardar_mapa(analisis, coordenadas, ruta, k, referencia,
+                 mostrar_nombres=False, numerar=False):
+    """Mapa de clusters.
+
+    numerar=True etiqueta cada río con un número (0..n-1) y agrega una
+    leyenda que asocia cada número con el nombre del río.
+    """
+    from matplotlib.lines import Line2D
+
+    mapa = _armar_mapa(coordenadas, analisis, k)
+    mapa[["Numero", "Codigo", "Rio", "Cluster", "Latitud", "Longitud"]].to_csv(
+        referencia, index=False
+    )
+    colores = plt.cm.nipy_spectral(np.linspace(0, 1, k, endpoint=False))
+    fig, eje = plt.subplots(figsize=(19 if numerar else 10, 14))
+    _base_argentina(eje)
     eje.scatter(mapa["Longitud"], mapa["Latitud"],
                 c=colores[mapa["Cluster"]], edgecolors="black", zorder=3)
     if mostrar_nombres:
@@ -234,34 +281,69 @@ def guardar_mapa(analisis, coordenadas, ruta, k, referencia, mostrar_nombres=Fal
                 fontsize=6,
                 zorder=4,
             )
+    if numerar:
+        pos = _separar_etiquetas(mapa["Longitud"], mapa["Latitud"])
+        for (_, rio), (px, py) in zip(mapa.iterrows(), pos):
+            desplazada = np.hypot(px - rio["Longitud"], py - rio["Latitud"]) > .15
+            eje.annotate(
+                str(rio["Numero"]),
+                (rio["Longitud"], rio["Latitud"]),
+                xytext=(px, py),
+                textcoords="data",
+                fontsize=6.5, ha="center", va="center", zorder=5,
+                bbox=dict(boxstyle="round,pad=.15", fc="white",
+                          ec=colores[rio["Cluster"]], lw=.8, alpha=.9),
+                arrowprops=dict(arrowstyle="-", lw=.5, color="black")
+                if desplazada else None,
+            )
     eje.set(xlim=(-73.5, -53.5), ylim=(-55.5, -21.5),
             title=f"Distribución geográfica de clusters (k={k})",
             xlabel="Longitud", ylabel="Latitud")
     eje.set_aspect("equal")
-    eje.legend(
+    leyenda_clusters = eje.legend(
         handles=[Patch(facecolor=colores[i], label=f"Cluster {i}") for i in range(k)],
-        title="Clusters", bbox_to_anchor=(1.02, 1), loc="upper left",
-        fontsize=7, ncol=2,
+        title="Clusters", fontsize=7, ncol=2,
+        **({"loc": "lower right"} if numerar
+           else {"bbox_to_anchor": (1.02, 1), "loc": "upper left"}),
     )
+    if numerar:
+        eje.add_artist(leyenda_clusters)
+        filas_por_columna = 45
+        columnas = int(np.ceil(len(mapa) / filas_por_columna))
+        eje.legend(
+            handles=[
+                Line2D([], [], marker="o", linestyle="", markersize=5,
+                       markerfacecolor=colores[rio["Cluster"]],
+                       markeredgecolor="black", markeredgewidth=.3,
+                       label=f"{rio['Numero']}: {rio['Rio']} (C{rio['Cluster']})")
+                for _, rio in mapa.iterrows()
+            ],
+            title="Ríos", bbox_to_anchor=(1.02, 1), loc="upper left",
+            fontsize=7, ncol=columnas, handletextpad=.3, columnspacing=1,
+            borderaxespad=0,
+        )
     fig.tight_layout()
-    fig.savefig(ruta, dpi=150)
+    fig.savefig(ruta, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
-def guardar_histogramas(analisis, carpeta, k):
+def guardar_histogramas(analisis, carpeta, k, nombres=None):
+    """Hidrogramas con caudales normalizados por Qmod (Q/Qmod)."""
     carpeta_medios = carpeta / "por_cluster"
     carpeta_rios = carpeta / "por_rio"
     carpeta_medios.mkdir(parents=True, exist_ok=True)
     carpeta_rios.mkdir(parents=True, exist_ok=True)
+    nombres = nombres or {}
     modelo = analisis["modelos"][k]
-    datos = analisis["caudales"].copy()
+    datos = analisis["caudales_norm"].copy()
     datos["Cluster"] = modelo.labels_
     medias = datos.groupby("Cluster")[MESES].mean()
     for cluster, fila in medias.iterrows():
         fig, eje = plt.subplots(figsize=(8, 4))
         eje.bar(MESES, fila)
         eje.set(title=f"Perfil medio - Cluster {cluster}",
-                xlabel="Mes", ylabel="Caudal normalizado")
+                xlabel="Mes", ylabel="Caudal normalizado (Q/Qmod)")
+        eje.set_ylim(0, 5)
         eje.grid(alpha=.3)
         fig.tight_layout()
         fig.savefig(carpeta_medios / f"cluster_{cluster:02d}_medio.png", dpi=120)
@@ -274,9 +356,10 @@ def guardar_histogramas(analisis, carpeta, k):
         )
         for eje, codigo in zip(ejes.flat, codigos):
             eje.bar(MESES, datos.loc[codigo, MESES])
-            eje.set_title(f"Río {codigo}")
+            eje.set_title(nombres.get(codigo, f"Río {codigo}"))
             eje.set_xlabel("Mes")
-            eje.set_ylabel("Caudal")
+            eje.set_ylabel("Q/Qmod")
+            eje.set_ylim(0, 5)
             eje.grid(alpha=.3)
         for eje in ejes.flat[len(codigos):]:
             eje.set_visible(False)
@@ -284,3 +367,30 @@ def guardar_histogramas(analisis, carpeta, k):
         fig.tight_layout()
         fig.savefig(carpeta_rios / f"cluster_{cluster:02d}_rios.png", dpi=120)
         plt.close(fig)
+
+
+def cargar_caracteristicas_etapa1(base):
+    """Coordenadas y vector extra (Latitud, Longitud, Altitud) de la etapa 1.
+
+    Todo sale de csv_etapa1/coordenadas.csv. Altitudes faltantes o negativas
+    (ej. -999) se completan con la mediana.
+    """
+    coordenadas = cargar_coordenadas([
+        (Path(base) / "csv" / "csv_etapa1" / "coordenadas.csv", False),
+    ])
+    coordenadas["Altitud_msnm"] = coordenadas["Altitud_msnm"].where(
+        coordenadas["Altitud_msnm"] >= 0
+    )
+    faltantes = coordenadas[coordenadas["Altitud_msnm"].isna()]
+    if len(faltantes):
+        print(f"AVISO: {len(faltantes)} estación(es) sin altitud en "
+              "coordenadas.csv, se completan con la mediana:")
+        for _, fila in faltantes.iterrows():
+            print(f"  {int(fila['Codigo'])} - {fila['Rio']} ({fila['Lugar']})")
+    caracteristicas = coordenadas.set_index("Codigo")[
+        ["Latitud", "Longitud", "Altitud_msnm"]
+    ].copy()
+    caracteristicas["Altitud_msnm"] = caracteristicas["Altitud_msnm"].fillna(
+        caracteristicas["Altitud_msnm"].median()
+    )
+    return coordenadas, caracteristicas

@@ -34,35 +34,26 @@ RUTA_GRAFICO = Path("seleccion_k_altitud.png")
 
 
 def cargar_datos():
-    from analisis_rios import cargar_caudales, cargar_coordenadas, normalizar
+    """Vectores de 15 datos: 12 caudales Q/Qmod + Latitud, Longitud, Altitud.
+
+    Sólo se usan los CSV de regiones de la etapa 1 (sin Buenos Aires).
+    Luego se estandariza cada columna (StandardScaler: z = (x - media) / desvío)
+    para que caudales, coordenadas y altitud queden en la misma escala.
+    """
+    from analisis_rios import (
+        cargar_caracteristicas_etapa1, cargar_caudales, normalizar,
+    )
 
     base = Path(__file__).resolve().parent
-    datos = base / "csv" / "csv_etapa1"
-    caudales, qmod = cargar_caudales(datos, "estaciones_final*.csv")
-    X = normalizar(caudales, qmod, True, False, False)
-
-    archivos_coords = [
-        (datos / "coordenadas.csv", False),
-        (datos / "estaciones_final - Buenos Aires.csv", True),
-    ]
-    disponibles = [ruta.exists() for ruta, _ in archivos_coords]
-    if not any(disponibles):
-        return X.to_numpy(dtype=float), None
-
-    coordenadas = cargar_coordenadas([
-        par for par, disponible in zip(archivos_coords, disponibles) if disponible
-    ]).set_index("Codigo")
-    coordenadas = coordenadas.reindex(X.index)
-    validas = coordenadas[["Latitud", "Longitud"]].notna().all(axis=1)
-    X = X.loc[validas]
-    extras = coordenadas.loc[
-        validas, ["Latitud", "Longitud", "Altitud_msnm"]
-    ].copy()
-    extras["Altitud_msnm"] = extras["Altitud_msnm"].fillna(
-        extras["Altitud_msnm"].median()
+    caudales, qmod = cargar_caudales(
+        base / "csv" / "csv_etapa1", "estaciones_final - Region_*.csv"
     )
-    X = np.column_stack((X.loc[validas].to_numpy(dtype=float),
-                         extras.to_numpy(dtype=float)))
+    X = normalizar(caudales, qmod, True, False, False)
+    _, extras = cargar_caracteristicas_etapa1(base)
+    extras = extras.reindex(X.index)
+    validas = extras.notna().all(axis=1)
+    X, extras = X.loc[validas], extras.loc[validas]
+    X = np.column_stack((X.to_numpy(dtype=float), extras.to_numpy(dtype=float)))
     X = StandardScaler().fit_transform(X)
     return X, extras[["Latitud", "Longitud"]].to_numpy(dtype=float)
 
@@ -206,10 +197,11 @@ def graficar(tabla, gap, k_grueso, k_fino):
     ks = np.array(sorted(gap))
     gaps = np.array([gap[k][0] for k in ks])
     errores = np.array([gap[k][1] for k in ks]) 
-    fig, ejes = plt.subplots(3, 2, figsize=(14, 14), sharex=True)
+    fig, ejes = plt.subplots(3, 2, figsize=(14, 14))
     ejes[0, 0].plot(tabla.k, tabla.ari_boot)
     ejes[0, 0].fill_between(
-        tabla.k, tabla.ari_boot - tabla.ari_std, tabla.ari_boot + tabla.ari_std,
+        tabla.k, (tabla.ari_boot - tabla.ari_std).clip(lower=0),
+        (tabla.ari_boot + tabla.ari_std).clip(upper=1),
         alpha=.2,
     )
     ejes[0, 0].set_ylabel("ARI bootstrap")
@@ -230,10 +222,20 @@ def graficar(tabla, gap, k_grueso, k_fino):
     ejes[2, 0].set_ylabel("Calinski-Harabasz")
     ejes[2, 1].plot(tabla.k, tabla.davies_bouldin)
     ejes[2, 1].set_ylabel("Davies-Bouldin")
+    k_min, k_max = int(ks.min()), int(ks.max())
     for eje in ejes.flat:
         eje.grid(alpha=.25)
         eje.set_xlabel("k")
-        eje.axvline(15, color="green", linestyle="--")
+        eje.set_xlim(k_min - 1, k_max + 1)
+        eje.set_xticks(range(k_min, k_max + 1, 2))
+        eje.set_xticks(range(k_min, k_max + 1), minor=True)
+        eje.tick_params(axis="x", labelsize=7, labelbottom=True)
+        if k_fino is not None:
+            eje.axvline(k_fino, color="green", linestyle="--", linewidth=1.5)
+    titulo = "Selección de k (etapa 1)"
+    if k_fino is not None:
+        titulo += f" — línea verde: k óptimo = {k_fino}"
+    fig.suptitle(titulo, fontsize=13)
     fig.tight_layout()
     fig.savefig(RUTA_GRAFICO, dpi=150)
     plt.close(fig)
