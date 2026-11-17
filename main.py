@@ -16,17 +16,9 @@ CARPETA_BASE = Path(__file__).parent
 CARPETA_ANALISIS = CARPETA_BASE
 CARPETA_EXTRA = Path(__file__).parent / "extra"
 
+# Etapa 1 sin Buenos Aires: sólo se usan los CSV de regiones
+# ("estaciones_final - Region_*.csv") y las coordenadas de extra/coordenadas.csv.
 coordenadas = pd.read_csv(CARPETA_EXTRA / "coordenadas.csv")
-coordenadas_buenos_aires = pd.read_csv(
-    CARPETA_BASE / "csv" / "estaciones_final - Buenos Aires.csv",
-    encoding="latin1",
-)
-coordenadas_buenos_aires["Latitud"] = -coordenadas_buenos_aires["Latitud"].abs()
-coordenadas_buenos_aires["Longitud"] = -coordenadas_buenos_aires["Longitud"].abs()
-coordenadas = pd.concat(
-    [coordenadas, coordenadas_buenos_aires],
-    ignore_index=True,
-)
 coordenadas["Codigo"] = pd.to_numeric(coordenadas["Codigo"], errors="coerce")
 coordenadas["Codigo"] = coordenadas["Codigo"].astype("Int64")
 nombres_por_codigo = (
@@ -96,5 +88,6 @@ def ejecutar_analisis(cantidad_clusters):
     print(f"k del codo: {resultados['k_codo']}")
 
 
-for cantidad_clusters in (8, 18, 40):
+# 6: k óptimo de seleccion_k.py (etapa 1 sin Buenos Aires, ver resultados_k_etapa1.csv).
+for cantidad_clusters in (6, 8, 18, 40):
     ejecutar_analisis(cantidad_clusters)

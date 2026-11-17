@@ -33,7 +33,7 @@ K_MAXIMO = 40
 SEMILLA = 42
 
 
-def cargar_caudales(carpeta_datos=None, patron="estaciones_final*.csv"):
+def cargar_caudales(carpeta_datos=None, patron="estaciones_final - Region_*.csv"):
     """Carga los CSV y devuelve los 12 valores normalizados para cada código.
     Si un código aparece varias veces, se calcula la media de sus caudales
     mensuales y de su Qmod antes de normalizar.
@@ -157,7 +157,7 @@ def evaluar_clusters(datos, valores_k):
 def analizar(
     k_seleccionado=None,
     carpeta_datos=None,
-    patron="estaciones_final*.csv",
+    patron="estaciones_final - Region_*.csv",
     k_maximo=None,
 ):
     """Ejecuta el pipeline completo y permite seleccionar el número de clusters."""
