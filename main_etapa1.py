@@ -23,8 +23,9 @@ SALIDA = BASE / "resultados_etapa1"
 COORDENADAS, CARACTERISTICAS = cargar_caracteristicas_etapa1(BASE)
 NOMBRES = COORDENADAS.set_index("Codigo")["Rio"].to_dict()
 
-# 15: resolución fina previa; 26: k fino óptimo de seleccion_k.py; 27: pedido.
-KS = (15, 26, 27)
+# 15: resolución fina previa; 26: k fino óptimo previo; 27: k fino óptimo de
+# seleccion_k.py (sin coherencia espacial en el criterio); 37: pedido.
+KS = (15, 26, 27, 37)
 
 # Ejemplo: 10 m3/s pasa a 0.5 al dividirlo por Qmod=20.
 USAR_QMOD = True

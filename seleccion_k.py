@@ -28,6 +28,13 @@ K_REF = 37
 ARI_PISO = 0.55
 COHERENCIA_TOL = 0.03
 CORRELACION_REDUNDANTE = 0.98
+# Métricas que forman el score (promedio de rangos) para elegir k.
+# La coherencia espacial NO entra en el criterio: sólo se calcula y grafica
+# como información.
+COLUMNAS_SCORE = ["ari_boot", "silueta"]
+# Cantidad de columnas esperada en X (12 caudales + lat + lon + altitud).
+N_COLUMNAS = 15
+TITULO = "Selección de k (etapa 1, sin coherencia espacial en el criterio)"
 
 RUTA_RESULTADOS = Path("resultados_k_altitud.csv")
 RUTA_GRAFICO = Path("seleccion_k_altitud.png")
@@ -166,9 +173,7 @@ def decidir_k(tabla, gap):
         & (tabla["ari_boot"] >= ARI_PISO)
         & (tabla["pares_centroides_redundantes"] == 0)
     ].copy()
-    columnas_score = [
-        "ari_boot", "exceso_coherencia", "cociente_coherencia", "silueta"
-    ]
+    columnas_score = list(COLUMNAS_SCORE)
     for columna in columnas_score:
         candidatos[f"rango_{columna}"] = candidatos[columna].rank(pct=True)
     candidatos["score"] = candidatos[
@@ -232,7 +237,7 @@ def graficar(tabla, gap, k_grueso, k_fino):
         eje.tick_params(axis="x", labelsize=7, labelbottom=True)
         if k_fino is not None:
             eje.axvline(k_fino, color="green", linestyle="--", linewidth=1.5)
-    titulo = "Selección de k (etapa 1)"
+    titulo = TITULO
     if k_fino is not None:
         titulo += f" — línea verde: k óptimo = {k_fino}"
     fig.suptitle(titulo, fontsize=13)
@@ -244,8 +249,8 @@ def graficar(tabla, gap, k_grueso, k_fino):
 def ejecutar():
     X, coords = cargar_datos()
     X = np.asarray(X, dtype=np.float32)
-    if X.ndim != 2 or X.shape[1] != 15:
-        raise ValueError("X debe tener forma (n_rios, 15).")
+    if X.ndim != 2 or X.shape[1] != N_COLUMNAS:
+        raise ValueError(f"X debe tener forma (n_rios, {N_COLUMNAS}).")
     ks = list(KS)
     columnas_cache = {
         "k", "ari_boot", "ari_std", "gap", "gap_std",
